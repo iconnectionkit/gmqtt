@@ -94,6 +94,7 @@ type Client struct {
 	userMutex sync.Mutex
 	userData  interface{}
 
+
 	ready chan struct{} //close after session prepared
 }
 
@@ -448,7 +449,7 @@ func (client *Client) subscribeHandler(sub *packets.Subscribe) {
 		srv.retainedMsgMu.Lock()
 		for _, msg := range srv.retainedMsg {
 			msg.Retain = true
-			msgRouter := &msgRouter{forceBroadcast: false, pub: msg}
+			msgRouter := &msgRouter{pub: msg}
 			srv.msgRouter <- msgRouter
 		}
 		srv.retainedMsgMu.Unlock()
@@ -491,7 +492,7 @@ func (client *Client) publishHandler(pub *packets.Publish) {
 		}
 		if valid {
 			pub.Retain = false
-			msgRouter := &msgRouter{forceBroadcast: false, pub: pub}
+			msgRouter := &msgRouter{ pub: pub}
 			select {
 			case <-client.close:
 				return

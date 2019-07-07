@@ -16,6 +16,9 @@ import (
 )
 
 func main() {
+
+
+
 	go func() {
 		http.ListenAndServe("127.0.0.1:6060", nil)
 	}()
@@ -23,7 +26,7 @@ func main() {
 	s.SetMaxInflightMessages(20)
 	s.SetMaxQueueMessages(99999)
 
-	ln, err := net.Listen("tcp", ":1883")
+	ln, err := net.Listen("tcp", ":1884")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return

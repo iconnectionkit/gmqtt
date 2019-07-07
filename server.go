@@ -12,7 +12,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"strings"
 )
+
 
 var (
 	// ErrInvalWsMsgType [MQTT-6.0.0-1]
@@ -36,6 +38,8 @@ const (
 	serverStatusInit = iota
 	serverStatusStarted
 )
+
+
 
 // Server represents a mqtt server instance.
 // Create an instance of Server, by using NewServer()
@@ -119,48 +123,16 @@ func (srv *Server) RegisterOnStop(callback OnStop) {
 
 type subscriptionsDB struct {
 	sync.RWMutex
-	topicsByID   map[string]map[string]packets.Topic //[clientID][topicName]Topic fast addressing with client id
-	topicsByName map[string]map[string]packets.Topic //[topicName][clientID]Topic fast addressing with topic name
+	/*topicsByID   map[string]map[string]packets.Topic //[clientID][topicName]Topic fast addressing with client id
+	topicsByName map[string]map[string]packets.Topic //[topicName][clientID]Topic fast addressing with topic name*/
+	topicIndex map[string]map[string]*topicNode // [clientID][topicName]
+	topicTrie *topicTrie
 }
 
-//init db
-func (db *subscriptionsDB) init(clientID string, topicName string) {
-	if _, ok := db.topicsByID[clientID]; !ok {
-		db.topicsByID[clientID] = make(map[string]packets.Topic)
-	}
-	if _, ok := db.topicsByName[topicName]; !ok {
-		db.topicsByName[topicName] = make(map[string]packets.Topic)
-	}
-}
-
-// exist returns true if subscription is existed 判断订阅是否存在
-func (db *subscriptionsDB) exist(clientID string, topicName string) bool {
-	if _, ok := db.topicsByName[topicName][clientID]; !ok {
-		return false
-	}
-	return true
-}
-
-//添加一条记录
-func (db *subscriptionsDB) add(clientID string, topicName string, topic packets.Topic) {
-	db.topicsByID[clientID][topicName] = topic
-	db.topicsByName[topicName][clientID] = topic
-}
 
 //删除一条记录
 func (db *subscriptionsDB) remove(clientID string, topicName string) {
-	if _, ok := db.topicsByName[topicName]; ok {
-		delete(db.topicsByName[topicName], clientID)
-		if len(db.topicsByName[topicName]) == 0 {
-			delete(db.topicsByName, topicName)
-		}
-	}
-	if _, ok := db.topicsByID[clientID]; ok {
-		delete(db.topicsByID[clientID], topicName)
-		if len(db.topicsByID[clientID]) == 0 {
-			delete(db.topicsByID, clientID)
-		}
-	}
+	db.topicTrie.unsubscribe(clientID,topicName)
 }
 
 var log *logger.Logger
@@ -191,8 +163,6 @@ type unregister struct {
 }
 
 type msgRouter struct {
-	forceBroadcast bool
-	clientIDs      map[string]struct{} //key by clientID
 	pub            *packets.Publish
 }
 
@@ -249,7 +219,7 @@ func (srv *Server) registerHandler(register *register) {
 					Payload:   oldClient.opts.WillPayload,
 				}
 				go func() {
-					msgRouter := &msgRouter{forceBroadcast: false, pub: willMsg}
+					msgRouter := &msgRouter{pub: willMsg}
 					srv.msgRouter <- msgRouter
 				}()
 			}
@@ -350,7 +320,7 @@ clearIn:
 			Payload:   client.opts.WillPayload,
 		}
 		go func() {
-			msgRouter := &msgRouter{forceBroadcast: false, pub: willMsg}
+			msgRouter := &msgRouter{ pub: willMsg}
 			client.server.msgRouter <- msgRouter
 		}()
 	}
@@ -390,55 +360,10 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
 	pub := msg.pub
-	if msg.forceBroadcast { //broadcast
-		publish := pub.CopyPublish()
-		publish.Dup = false
-		if len(msg.clientIDs) != 0 {
-			for cid := range msg.clientIDs {
-				if _, ok := srv.clients[cid]; ok {
-					srv.clients[cid].publish(publish)
-				}
-			}
-		} else {
-			for _, c := range srv.clients {
-				c.publish(publish)
-			}
-		}
-		return
-	}
 	srv.subscriptionsDB.RLock()
 	defer srv.subscriptionsDB.RUnlock()
 	m := make(map[string]uint8)
-	cidlen := len(msg.clientIDs)
-	for topicName, cmap := range srv.subscriptionsDB.topicsByName {
-		if packets.TopicMatch(pub.TopicName, []byte(topicName)) { //找到能匹配当前主题订阅等级最高的客户端
-			if cidlen != 0 { //to specific clients
-				for cid := range msg.clientIDs {
-					if t, ok := cmap[cid]; ok {
-
-						if qos, ok := m[cid]; ok {
-							if t.Qos > qos {
-								m[cid] = t.Qos
-							}
-						} else {
-							m[cid] = t.Qos
-						}
-
-					}
-				}
-			} else {
-				for cid, t := range cmap { //cmap:map[string]*subscription
-					if qos, ok := m[cid]; ok {
-						if t.Qos > qos {
-							m[cid] = t.Qos
-						}
-					} else {
-						m[cid] = t.Qos
-					}
-				}
-			}
-		}
-	}
+	m = srv.subscriptionsDB.topicTrie.getMatchedClients(string(pub.TopicName))
 	for cid, qos := range m {
 		publish := pub.CopyPublish()
 		if publish.Qos > qos {
@@ -454,27 +379,29 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 //return whether it is a new subscription
 func (srv *Server) subscribe(clientID string, topic packets.Topic) bool {
 	var isNew bool
-	srv.subscriptionsDB.init(clientID, topic.Name)
-	isNew = !srv.subscriptionsDB.exist(clientID, topic.Name)
-	srv.subscriptionsDB.topicsByID[clientID][topic.Name] = topic
-	srv.subscriptionsDB.topicsByName[topic.Name][clientID] = topic
+	isNew, node := srv.subscriptionsDB.topicTrie.subscribe(clientID, topic)
+	if isNew {
+		if srv.subscriptionsDB.topicIndex[clientID] == nil {
+			srv.subscriptionsDB.topicIndex[clientID] = make(map[string]*topicNode)
+		}
+		srv.subscriptionsDB.topicIndex[clientID][node.topicName] = node
+	}
 	return isNew
 }
 func (srv *Server) unsubscribe(clientID string, topicName string) {
+	if _, ok := srv.subscriptionsDB.topicIndex[clientID];ok {
+		delete(srv.subscriptionsDB.topicIndex[clientID], topicName)
+	}
 	srv.subscriptionsDB.remove(clientID, topicName)
 }
 func (srv *Server) removeClientSubscriptions(clientID string) {
-	db := srv.subscriptionsDB
-	if _, ok := db.topicsByID[clientID]; ok {
-		for topicName := range db.topicsByID[clientID] {
-			if _, ok := db.topicsByName[topicName]; ok {
-				delete(db.topicsByName[topicName], clientID)
-				if len(db.topicsByName[topicName]) == 0 {
-					delete(db.topicsByName, topicName)
-				}
-			}
+
+	for _, node := range srv.subscriptionsDB.topicIndex[clientID] {
+		delete(node.clients, clientID)
+		if len(node.clients) == 0 && len(node.children) == 0 {
+			ss := strings.Split(node.topicName,"/")
+			delete(node.parent.children, ss[len(ss) -1 :][0])
 		}
-		delete(db.topicsByID, clientID)
 	}
 }
 
@@ -549,8 +476,8 @@ func NewServer() *Server {
 		unregister:  make(chan *unregister, DefaultUnRegisterLen),
 		retainedMsg: make(map[string]*packets.Publish),
 		subscriptionsDB: &subscriptionsDB{
-			topicsByName: make(map[string]map[string]packets.Topic),
-			topicsByID:   make(map[string]map[string]packets.Topic),
+			topicTrie:newTopicTrie(),
+			topicIndex:make(map[string]map[string]*topicNode),
 		},
 		config: &config{
 			deliveryRetryInterval: DefaultDeliveryRetryInterval,
@@ -614,32 +541,15 @@ func (srv *Server) SetMaxInflightMessages(i int) {
 	srv.config.maxInflightMessages = i
 }
 
-// Publish 主动发布一个主题，如果clientIDs没有设置，则默认会转发到所有有匹配主题的客户端，如果clientIDs有设置，则只会转发到clientIDs指定的有匹配主题的客户端。
+// Publish 主动发布一个主题
 //
 // Publish publishs a message to the broker.
-// If the second param is not set, the message will be distributed to any clients that has matched subscriptions.
-// If the second param clientIDs is set, the message will only try to distributed to the clients specified by the clientIDs
 // 	Notice: This method will not trigger the onPublish callback
-func (srv *Server) Publish(publish *packets.Publish, clientIDs ...string) {
-	cid := make(map[string]struct{})
-	for _, id := range clientIDs {
-		cid[id] = struct{}{}
-	}
-	srv.msgRouter <- &msgRouter{false, cid, publish}
+func (srv *Server) Publish(publish *packets.Publish) {
+	srv.msgRouter <- &msgRouter{publish}
 }
 
-// Broadcast 广播一个消息，此消息不受主题限制。默认广播到所有的客户端中去，如果clientIDs有设置，则只会广播到clientIDs指定的客户端。
-//
-// Broadcast broadcasts the message to all clients.
-// If the second param clientIDs is set, the message will only send to the clients specified by the clientIDs.
-// 	Notice: This method will not trigger the onPublish callback
-func (srv *Server) Broadcast(publish *packets.Publish, clientIDs ...string) {
-	cid := make(map[string]struct{})
-	for _, id := range clientIDs {
-		cid[id] = struct{}{}
-	}
-	srv.msgRouter <- &msgRouter{true, cid, publish}
-}
+
 
 // Subscribe 为某一个客户端订阅主题
 //
