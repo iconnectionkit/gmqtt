@@ -380,12 +380,10 @@ func (srv *Server) msgRouterHandler(msg *msgRouter) {
 func (srv *Server) subscribe(clientID string, topic packets.Topic) bool {
 	var isNew bool
 	isNew, node := srv.subscriptionsDB.topicTrie.subscribe(clientID, topic)
-	if isNew {
-		if srv.subscriptionsDB.topicIndex[clientID] == nil {
-			srv.subscriptionsDB.topicIndex[clientID] = make(map[string]*topicNode)
-		}
-		srv.subscriptionsDB.topicIndex[clientID][node.topicName] = node
+	if srv.subscriptionsDB.topicIndex[clientID] == nil {
+		srv.subscriptionsDB.topicIndex[clientID] = make(map[string]*topicNode)
 	}
+	srv.subscriptionsDB.topicIndex[clientID][topic.Name] = node
 	return isNew
 }
 func (srv *Server) unsubscribe(clientID string, topicName string) {
@@ -395,14 +393,14 @@ func (srv *Server) unsubscribe(clientID string, topicName string) {
 	srv.subscriptionsDB.remove(clientID, topicName)
 }
 func (srv *Server) removeClientSubscriptions(clientID string) {
-
-	for _, node := range srv.subscriptionsDB.topicIndex[clientID] {
+	for topicName, node := range srv.subscriptionsDB.topicIndex[clientID] {
 		delete(node.clients, clientID)
 		if len(node.clients) == 0 && len(node.children) == 0 {
-			ss := strings.Split(node.topicName,"/")
-			delete(node.parent.children, ss[len(ss) -1 :][0])
+			ss := strings.Split(topicName,"/")
+			delete(node.parent.children, ss[len(ss) -1])
 		}
 	}
+	delete(srv.subscriptionsDB.topicIndex, clientID)
 }
 
 // server event loop

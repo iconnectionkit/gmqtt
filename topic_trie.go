@@ -14,7 +14,6 @@ type topicNode struct {
 	children children
 	clients  map[string]uint8 // clientID => qos
 	parent *topicNode  // pointer of parent node
-	topicName string
 }
 
 // newTopicTrie 返回一个指向初始化后的TrieTree指针
@@ -44,7 +43,7 @@ func (t *topicTrie) subscribe(clientID string, topic packets.Topic) (bool, *topi
 	var isNew bool
 	for _, lv := range topicSlice {
 		if _, ok := pNode.children[lv]; !ok {
-			pNode.children[lv] = t.newChild()
+			pNode.children[lv] = pNode.newChild()
 		}
 		pNode = pNode.children[lv]
 	}
@@ -52,7 +51,6 @@ func (t *topicTrie) subscribe(clientID string, topic packets.Topic) (bool, *topi
 		isNew = true
 	}
 	pNode.clients[clientID] = topic.Qos
-	pNode.topicName = topic.Name
 	return isNew, pNode
 }
 
@@ -75,19 +73,18 @@ func (t *topicTrie) unsubscribe(clientID string, topicName string) {
 	topicSlice := strings.Split(topicName, "/")
 	l := len(topicSlice)
 	var pNode = t
-	for _, lv := range topicSlice[0 : l-1] {
+	for _, lv := range topicSlice {
 		if _, ok := pNode.children[lv]; ok {
 			pNode = pNode.children[lv]
 		} else {
 			return
 		}
 	}
-	if n, ok := pNode.children[topicSlice[l-1]]; ok {
-		delete(n.clients, clientID)
-		if len(n.clients) == 0 && len(n.children) == 0 { // empty leaf
-			delete(pNode.children, topicSlice[l-1])
-		}
+	delete(pNode.clients, clientID)
+	if len(pNode.clients) == 0 && len(pNode.children) == 0 {
+		delete(pNode.parent.children, topicSlice[l-1])
 	}
+
 }
 
 // setQos

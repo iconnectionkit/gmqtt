@@ -26,7 +26,7 @@ func main() {
 	s.SetMaxInflightMessages(20)
 	s.SetMaxQueueMessages(99999)
 
-	ln, err := net.Listen("tcp", ":1884")
+	ln, err := net.Listen("tcp", ":1883")
 	if err != nil {
 		log.Fatalln(err.Error())
 		return
