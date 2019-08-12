@@ -3,8 +3,8 @@ package gmqtt
 import (
 	"context"
 	"errors"
-	"github.com/DrmagicE/gmqtt/logger"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/iconnectionkit/gmqtt/logger"
+	"github.com/iconnectionkit/gmqtt/pkg/packets"
 	"github.com/gorilla/websocket"
 	"net"
 	"net/http"
