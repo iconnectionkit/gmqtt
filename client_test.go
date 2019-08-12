@@ -5,7 +5,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/iconnectionkit/gmqtt/pkg/packets"
 	"io"
 	"net"
 	"reflect"
