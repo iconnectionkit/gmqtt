@@ -150,6 +150,7 @@ func (c *Connect) Unpack(r io.Reader) error {
 	c.CleanSession = (1 & (connectFlags >> 1)) > 0
 	c.WillFlag = (1 & (connectFlags >> 2)) > 0
 	c.WillQos = 3 & (connectFlags >> 3)
+	c.WillFlag = true // TODO FIND A BETTER WAY TO HANDLE THIS
 	if !c.WillFlag && c.WillQos != 0 { //[MQTT-3.1.2-11]
 		return ErrInvalWillQos
 	}
