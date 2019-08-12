@@ -262,6 +262,7 @@ func EncodeUTF8String(buf []byte) (b []byte, size int, err error) {
 func DecodeUTF8String(buf []byte) (b []byte, size int, err error) {
 	buflen := len(buf)
 	if buflen < 2 {
+		return []byte{}, 0, nil // @TODO FIND A BETTER WAY TO HANDLE THIS
 		return nil, 0, ErrInvalUTF8String
 	}
 	length := int(binary.BigEndian.Uint16(buf[0:2]))
