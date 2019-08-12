@@ -2,7 +2,7 @@ package gmqtt
 
 import (
 	"context"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/iconnectionkit/gmqtt/pkg/packets"
 	"io"
 	"net"
 	"reflect"
