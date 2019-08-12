@@ -1,7 +1,7 @@
 package gmqtt
 
 import (
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/iconnectionkit/gmqtt/pkg/packets"
 	"testing"
 )
 
