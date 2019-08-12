@@ -9,7 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/iconnectionkit/gmqtt/pkg/packets"
 	"io"
 	"net"
 	"os"
