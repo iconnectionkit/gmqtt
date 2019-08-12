@@ -3,7 +3,7 @@ package gmqtt
 import (
 	"context"
 	"fmt"
-	"github.com/DrmagicE/gmqtt/pkg/packets"
+	"github.com/iconnectionkit/gmqtt/pkg/packets"
 	"net"
 	"net/http"
 	"os"
