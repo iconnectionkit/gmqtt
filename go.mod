@@ -1,4 +1,4 @@
-module github.com/DrmagicE/gmqtt
+module github.com/iconnectionkit/gmqtt
 
 require (
 	github.com/eclipse/paho.mqtt.golang v1.1.1
